@@ -1,0 +1,3 @@
+^{:watch-dirs ["src"]
+  :css-dirs ["resources"]}
+{:main svg-clj-interactive.main}
