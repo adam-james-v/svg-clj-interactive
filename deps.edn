@@ -4,7 +4,9 @@
  :deps 
  {org.clojure/clojurescript     {:mvn/version "1.10.773"}
   reagent/reagent              {:mvn/version "0.10.0"}
-  io.github.adam-james-v/svg-clj {:mvn/version "0.0.2"}
+  io.github.adam-james-v/svg-clj {:mvn/version "0.0.3-SNAPSHOT"}
+  #_#_svg-clj/svg-clj {:local/root "/Users/adam/dev/svg-clj"}
+
   borkdude/sci                 {:mvn/version "0.2.6"}
   com.bhauman/figwheel-main     {:mvn/version "0.2.6"}}
 

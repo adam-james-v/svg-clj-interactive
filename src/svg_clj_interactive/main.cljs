@@ -10,7 +10,8 @@
             [svg-clj.parametric :as p]
             [svg-clj.layout :as lo]
             [sci.core :as sci]
-            [cljs.pprint]))
+            [cljs.pprint]
+            [goog.async.Debouncer]))
 
 (def default-editor-content-01
   "(ns svg-clj-interactive.main
@@ -51,7 +52,7 @@
         shape (tf/merge-paths beza bezb)
         ctr (tf/centroid shape)]
     (-> shape
-        (tf/rotate -90.0001)
+        (tf/rotate -90)
         (tf/translate (utils/v* ctr [-1 -1])))))
 
 (defn petal-ring
@@ -149,6 +150,10 @@ petal-ring-01")
 ;; populate any textarea state with the eval result
 (eval-state)
 
+(defn debounce [f interval]
+  (let [dbnc (goog.async.Debouncer. f interval)]
+    (fn [& args] (.apply (.-fire dbnc) dbnc (to-array args)))))
+
 (defn editor-did-mount
   [[param {:keys [value _] :as ctrl}]]
   (fn [this]
@@ -161,7 +166,8 @@ petal-ring-01")
                                   :tabSize 2})]
       (.setSize cm 450 450)
       (.on cm "change"
-           (fn [e]
+           (debounce
+            (fn [e]
              (let [new-value (.getValue e)
                    new-result (sci-eval new-value)
                    new-ctrl (-> ctrl
@@ -170,7 +176,8 @@ petal-ring-01")
                (swap! state
                       (fn [data]
                         (-> data
-                            (assoc param new-ctrl))))))))))
+                            (assoc param new-ctrl))))))
+               2000)))))
 
 (defn editor
   [[_ {:keys [value _]} :as state-entry]]
@@ -207,12 +214,38 @@ petal-ring-01")
                 (eval-state)))}]
    [:span value]])
 
-(defn renderable?
+#_(defn renderable?
   [elem]
   (when (seqable? elem)
     #_(and (seqable? elem)
            (not= sci.impl.vars/SciVar (type elem)))
     (#{:svg :text :g :rect :circle :ellipse :line :polygon :polyline :path :image} (first elem))))
+
+
+(defn renderable-element?
+  [elem]
+  (and (vector? elem)
+       (keyword? (first elem))
+       (not= (str (first elem)) ":")
+       (not (str/includes? (str (first elem)) "/"))
+       (not (re-matches #"[0-9.#].*" (name (first elem))))
+       (re-matches #"[a-zA-Z0-9.#]+" (name (first elem)))))
+
+(defn renderable?
+  [elem]
+  (when (or (renderable-element? elem) (seq? elem))
+    (let [[k props content] elem
+          [props content] (if (and (nil? content)
+                                   (not (map? props)))
+                            [nil props]
+                            [props content])]
+      (cond
+        (seq? elem) (not (empty? (filter renderable? elem)))
+        (seq? content) (not (empty? (filter renderable? content)))
+        :else (or (renderable-element? content)
+                  (renderable-element? elem)
+                  (string? content)
+                  (number? content))))))
 
 (defn wrap-svg
   [elem]

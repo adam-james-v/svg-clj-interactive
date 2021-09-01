@@ -12,7 +12,9 @@
  :deps 
  {org.clojure/clojurescript     {:mvn/version "1.10.773"}
   reagent/reagent              {:mvn/version "0.10.0"}
-  io.github.adam-james-v/svg-clj {:mvn/version "0.0.2"}
+  io.github.adam-james-v/svg-clj {:mvn/version "0.0.3-SNAPSHOT"}
+  #_#_svg-clj/svg-clj {:local/root "/Users/adam/dev/svg-clj"}
+
   borkdude/sci                 {:mvn/version "0.2.6"}
   com.bhauman/figwheel-main     {:mvn/version "0.2.6"}}
 
@@ -22,6 +24,24 @@
 #+end_src
 
 ** build-config
+To run a build:
+
+~clj -m figwheel.main -b dev~
+~clj -m figwheel.main -bo prod~
+
+To build and produce a version to push to GH-PAGES:
+
+~clj -m figwheel.main -bo prod~
+
+Then:
+mv or cp prod-main.js from
+
+~./target/public/cljs-out/prod-main.js~
+
+to
+
+~./public/js/prod-main.js~
+
 #+BEGIN_SRC clojure :tangle ./figwheel-main.edn
 {:ring-server-options {:port 9553}}
 #+END_SRC
@@ -54,16 +74,19 @@
     <script src="/js/clojure.js" ></script>
     <link rel="stylesheet" href="codemirror.css">
     <link rel="stylesheet" href="nord.css">
-    <script src="/cljs-out/prod-main.js"></script>
+    <script src="/cljs-out/dev-main.js"></script>
   </body>
 </html>
 #+END_SRC
 
 *** prod-html
+The site is hosted with github pages, so the index file is saved directly into the project root.
+
 #+BEGIN_SRC html :tangle ./index.html
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
+    <meta charset="utf-8"/>
     <title>svg-clj-interactive</title>
     <link rel="stylesheet" href="public/style.css">
   </head>
@@ -239,11 +262,12 @@ textarea {
             [svg-clj.parametric :as p]
             [svg-clj.layout :as lo]
             [sci.core :as sci]
-            [cljs.pprint]))
+            [cljs.pprint]
+            [goog.async.Debouncer]))
 
 #+END_SRC
 
-* state
+* default-content
 #+BEGIN_SRC clojure :tangle ./src/svg_clj_interactive/main.cljs
 (def default-editor-content-01
   "(ns svg-clj-interactive.main
@@ -284,7 +308,7 @@ textarea {
         shape (tf/merge-paths beza bezb)
         ctr (tf/centroid shape)]
     (-> shape
-        (tf/rotate -90.0001)
+        (tf/rotate -90)
         (tf/translate (utils/v* ctr [-1 -1])))))
 
 (defn petal-ring
@@ -315,6 +339,10 @@ textarea {
 
 petal-ring-01")
 
+#+END_SRC
+
+* state
+#+BEGIN_SRC clojure :tangle ./src/svg_clj_interactive/main.cljs
 (def state
   (r/atom {:dwg {:input-type :drawing
                  :value default-editor-content-02}
@@ -389,6 +417,10 @@ petal-ring-01")
 
 * editor
 #+BEGIN_SRC clojure :tangle ./src/svg_clj_interactive/main.cljs
+(defn debounce [f interval]
+  (let [dbnc (goog.async.Debouncer. f interval)]
+    (fn [& args] (.apply (.-fire dbnc) dbnc (to-array args)))))
+
 (defn editor-did-mount
   [[param {:keys [value _] :as ctrl}]]
   (fn [this]
@@ -401,7 +433,8 @@ petal-ring-01")
                                   :tabSize 2})]
       (.setSize cm 450 450)
       (.on cm "change"
-           (fn [e]
+           (debounce
+            (fn [e]
              (let [new-value (.getValue e)
                    new-result (sci-eval new-value)
                    new-ctrl (-> ctrl
@@ -410,7 +443,8 @@ petal-ring-01")
                (swap! state
                       (fn [data]
                         (-> data
-                            (assoc param new-ctrl))))))))))
+                            (assoc param new-ctrl))))))
+               2000)))))
 
 (defn editor
   [[_ {:keys [value _]} :as state-entry]]
@@ -454,12 +488,38 @@ petal-ring-01")
 
 * drawing
 #+BEGIN_SRC clojure :tangle ./src/svg_clj_interactive/main.cljs
-(defn renderable?
+#_(defn renderable?
   [elem]
   (when (seqable? elem)
     #_(and (seqable? elem)
            (not= sci.impl.vars/SciVar (type elem)))
     (#{:svg :text :g :rect :circle :ellipse :line :polygon :polyline :path :image} (first elem))))
+
+
+(defn renderable-element?
+  [elem]
+  (and (vector? elem)
+       (keyword? (first elem))
+       (not= (str (first elem)) ":")
+       (not (str/includes? (str (first elem)) "/"))
+       (not (re-matches #"[0-9.#].*" (name (first elem))))
+       (re-matches #"[a-zA-Z0-9.#]+" (name (first elem)))))
+
+(defn renderable?
+  [elem]
+  (when (or (renderable-element? elem) (seq? elem))
+    (let [[k props content] elem
+          [props content] (if (and (nil? content)
+                                   (not (map? props)))
+                            [nil props]
+                            [props content])]
+      (cond
+        (seq? elem) (not (empty? (filter renderable? elem)))
+        (seq? content) (not (empty? (filter renderable? content)))
+        :else (or (renderable-element? content)
+                  (renderable-element? elem)
+                  (string? content)
+                  (number? content))))))
 
 (defn wrap-svg
   [elem]
